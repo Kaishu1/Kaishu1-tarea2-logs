@@ -1,0 +1,32 @@
+# Material de referencia y seguimiento local
+/docs/
+/AGENTS.md
+
+# Herramientas locales para generar gráficos y sus dependencias
+/scripts/
+/requirements.txt
+
+# Conservar la carpeta datos sin versionar su contenido
+/datos/*
+!/datos/.gitkeep
+
+# Archivos generados que no se incluyen en el repositorio
+/arboles_generados/
+/graficos/
+/build/
+
+# Exportaciones voluminosas de consultas.
+# Las métricas y la configuración de resultados/ sí se pueden versionar.
+/resultados/muestras/
+
+# Entornos virtuales y cachés de Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Archivos temporales y respaldos de editores
+*~
+*.swp
+*.swo

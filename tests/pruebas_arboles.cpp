@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "arbol_b.hpp"
+#include "arbol_be.hpp"
 
 namespace {
 
@@ -194,9 +195,214 @@ std::vector<Registro> crear_datos(int cantidad) {
     return datos;
 }
 
+/**
+ * Verifica estructura Bε desde disco: buffers ordenados en su rango, capacidades,
+ * enlaces únicos y hojas a igual profundidad. Devuelve cantidad de datos reales;
+ * agrega a muestras una llave por buffer interno no vacío para consultas puntuales.
+ */
+template <typename Nodo>
+std::size_t verificar_nodo_be(ArchivoNodos<Nodo>& archivo, int indice,
+                            std::int64_t inferior, std::int64_t superior,
+                            int profundidad, int& profundidad_hoja,
+                            std::vector<bool>& visitados, std::vector<int>& muestras) {
+    exigir(indice >= 0 && static_cast<std::size_t>(indice) < visitados.size(), "Hijo BE inexistente.");
+    exigir(!visitados[indice], "Ciclo o hijo BE compartido.");
+    visitados[indice] = true;
+    const Nodo nodo = archivo.leer(indice);
+    exigir(nodo.es_interno == 0 || nodo.es_interno == 1, "Tipo BE incorrecto.");
+    exigir(nodo.k_buffer >= 0 && nodo.k_buffer <= Nodo::lmax, "Buffer BE fuera de capacidad.");
+    for (int i = 0; i < nodo.k_buffer; ++i) {
+        exigir(nodo.buffer[i].llave > inferior && nodo.buffer[i].llave <= superior,
+               "Dato BE fuera del rango de su subarbol.");
+        if (i > 0) {
+            exigir(nodo.buffer[i - 1].llave <= nodo.buffer[i].llave, "Buffer BE desordenado.");
+        }
+    }
+    std::size_t pares = nodo.k_buffer;
+    if (!nodo.es_interno) {
+        exigir(nodo.k_llaves == 0, "Hoja BE con separadores.");
+        exigir(indice == 0 || nodo.k_buffer >= Nodo::lmax / 2, "Hoja BE bajo media capacidad.");
+        if (profundidad_hoja < 0) {
+            profundidad_hoja = profundidad;
+        }
+        exigir(profundidad == profundidad_hoja, "Hojas BE a distintas profundidades.");
+    } else {
+        const int minimo = indice == 0 ? 1 : Nodo::c / 2 - 1;
+        exigir(nodo.k_llaves >= minimo && nodo.k_llaves < Nodo::c,
+               "Ocupacion interna BE incorrecta o division no propagada.");
+        for (int i = 0; i < nodo.k_llaves; ++i) {
+            exigir(nodo.llaves[i] > inferior && nodo.llaves[i] <= superior,
+                   "Separador BE fuera de rango.");
+            if (i > 0) {
+                exigir(nodo.llaves[i - 1] < nodo.llaves[i], "Separadores BE desordenados.");
+            }
+        }
+        if (nodo.k_buffer > 0) {
+            muestras.push_back(nodo.buffer[0].llave);
+        }
+        for (int i = 0; i <= nodo.k_llaves; ++i) {
+            const std::int64_t desde = i == 0 ? inferior : nodo.llaves[i - 1];
+            const std::int64_t hasta = i == nodo.k_llaves ? superior : nodo.llaves[i];
+            pares += verificar_nodo_be(archivo, nodo.hijos[i], desde, hasta,
+                                       profundidad + 1, profundidad_hoja, visitados, muestras);
+        }
+    }
+    return pares;
+}
+
+/** Compara consulta BE [l,u] con filtrado directo; verifica solo lecturas de bloques. */
+template <typename TipoArbol>
+void verificar_consulta_be(ArchivoNodos<typename TipoArbol::Nodo>& archivo,
+                           const std::vector<Registro>& entrada, int l, int u) {
+    std::vector<Registro> esperado;
+    for (Registro par : entrada) {
+        if (par.llave >= l && par.llave <= u) {
+            esperado.push_back(par);
+        }
+    }
+    std::sort(esperado.begin(), esperado.end(),
+              [](Registro a, Registro b) { return a.llave < b.llave; });
+    archivo.reiniciar_metricas();
+    comparar(TipoArbol::buscar_rango(archivo, l, u), esperado);
+    exigir(archivo.metricas().lecturas >= 1 && archivo.metricas().lecturas <= archivo.cantidad_nodos()
+           && archivo.metricas().escrituras == 0, "Conteo incorrecto en consulta BE.");
+}
+
+/** Construye entrada, destruye RAM y comprueba estructura y consultas BE desde ruta. */
+template <typename TipoArbol>
+void probar_caso_be(const std::filesystem::path& ruta, const std::vector<Registro>& entrada,
+                    int profundidad_minima) {
+    using Nodo = typename TipoArbol::Nodo;
+    std::size_t nodos = 0;
+    {
+        TipoArbol arbol;
+        Arbol& interfaz = arbol;
+        for (Registro par : entrada) {
+            interfaz.insertar(par);
+        }
+        const auto antes = interfaz.metricas();
+        nodos = interfaz.cantidad_nodos();
+        const auto exportacion = interfaz.guardar(ruta.string());
+        exigir(exportacion.lecturas == nodos && exportacion.escrituras == nodos,
+               "Exportacion BE incompleta.");
+        exigir(interfaz.metricas().lecturas == antes.lecturas
+               && interfaz.metricas().escrituras == antes.escrituras, "Exportar altero I/Os BE.");
+        if (entrada.size() <= Nodo::lmax) {
+            exigir(antes.lecturas == entrada.size() && antes.escrituras == entrada.size() + 1,
+                   "I/Os BE incorrectas antes del primer split.");
+        } else if (entrada.size() <= 2 * Nodo::lmax) {
+            exigir(antes.lecturas == entrada.size() && antes.escrituras == entrada.size() + 3,
+                   "Insercion en buffer raiz hizo I/Os innecesarias.");
+        }
+    }
+    exigir(std::filesystem::file_size(ruta) == nodos * TAMANO_BLOQUE, "Tamano BE incorrecto.");
+    ArchivoNodos<Nodo> archivo(ruta.string());
+    std::vector<bool> visitados(nodos, false);
+    std::vector<int> muestras;
+    int profundidad_hoja = -1;
+    constexpr int minimo = std::numeric_limits<int>::min();
+    constexpr int maximo = std::numeric_limits<int>::max();
+    exigir(verificar_nodo_be(archivo, 0, static_cast<std::int64_t>(minimo) - 1, maximo,
+                            0, profundidad_hoja, visitados, muestras) == entrada.size(),
+           "Perdida o duplicacion de datos BE.");
+    exigir(std::all_of(visitados.begin(), visitados.end(), [](bool v) { return v; }),
+           "Nodo BE inaccesible.");
+    exigir(profundidad_hoja >= profundidad_minima, "El caso BE no alcanzo la altura prevista.");
+    verificar_consulta_be<TipoArbol>(archivo, entrada, minimo, maximo);
+    exigir(archivo.metricas().lecturas == nodos, "Consulta BE completa no leyo cada nodo una vez.");
+    for (int limite : {minimo, maximo, 1}) {
+        verificar_consulta_be<TipoArbol>(archivo, entrada, limite, limite);
+    }
+    for (std::size_t i = 0; i < std::min<std::size_t>(muestras.size(), 12); ++i) {
+        verificar_consulta_be<TipoArbol>(archivo, entrada, muestras[i], muestras[i]);
+        exigir(archivo.metricas().lecturas == static_cast<std::uint64_t>(profundidad_hoja + 1),
+               "Consulta BE puntual no podo las ramas.");
+    }
+    const Nodo raiz = archivo.leer(0);
+    if (raiz.es_interno) {
+        const int separador = raiz.llaves[0];
+        verificar_consulta_be<TipoArbol>(archivo, entrada, separador, separador);
+        verificar_consulta_be<TipoArbol>(archivo, entrada, separador - 1, separador + 1);
+    }
+    std::mt19937 generador(4102);
+    std::uniform_int_distribution<int> limites(-10, static_cast<int>(entrada.size()) * 2 + 10);
+    for (int i = 0; i < 30; ++i) {
+        int l = limites(generador);
+        int u = limites(generador);
+        if (l > u) {
+            std::swap(l, u);
+        }
+        verificar_consulta_be<TipoArbol>(archivo, entrada, l, u);
+    }
+    std::cout << ruta.filename().string() << ": OK (" << entrada.size() << " pares, "
+              << nodos << " nodos, " << profundidad_hoja + 1 << " niveles)\n";
+}
+
+/**
+ * Genera grupos a ambos lados del primer separador: uno justo bajo el umbral
+ * (o exactamente igual) y otro mayor. Comprueba selección de TODOS los grupos
+ * elegibles, conservación del resto y split de una hoja antes parcialmente llena.
+ */
+template <typename TipoArbol>
+void probar_umbral_be(const std::filesystem::path& ruta, bool bajo_umbral) {
+    using Nodo = typename TipoArbol::Nodo;
+    constexpr int lmax = Nodo::lmax;
+    const int umbral = ((lmax + 1) / 2 + 1) / 2;  // ceil(ceil(lmax/2)*0.5).
+    const int izquierdos = umbral - (bajo_umbral ? 1 : 0);
+    std::vector<Registro> entrada;
+    {
+        TipoArbol arbol;
+        for (int i = 0; i < lmax; ++i) {
+            entrada.push_back({100 * i, 1.25F});
+            arbol.insertar(entrada.back());
+        }
+        for (int i = 0; i < lmax; ++i) {
+            const int llave = i < izquierdos ? 100 * i + 1 : 100 * lmax + 2 * i;
+            entrada.push_back({llave, 2.5F});
+            arbol.insertar(entrada.back());
+        }
+        entrada.push_back({200 * lmax, 3.75F});
+        arbol.insertar(entrada.back());  // Dispara el flush del buffer raíz lleno.
+        arbol.guardar(ruta.string());
+    }
+    ArchivoNodos<Nodo> archivo(ruta.string());
+    const Nodo raiz = archivo.leer(0);
+    exigir(raiz.es_interno && raiz.k_llaves == 2, "No se dividio la hoja BE llena por el lote.");
+    exigir(raiz.k_buffer == (bajo_umbral ? izquierdos : 0) + 1, "Umbral alpha mal aplicado.");
+    const Nodo izquierda = archivo.leer(raiz.hijos[0]);
+    exigir(izquierda.k_buffer == lmax / 2 + (bajo_umbral ? 0 : izquierdos),
+           "Se transfirio un grupo bajo el umbral o se omitio uno elegible.");
+    verificar_consulta_be<TipoArbol>(archivo, entrada,
+                                    std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
+    std::cout << ruta.filename().string() << ": OK (seleccion de grupos con alpha=0.5)\n";
+}
+
+/** Ejecuta los mismos casos y semillas para una configuración BE en directorio. */
+template <typename TipoArbol>
+void probar_configuracion_be(const std::filesystem::path& directorio, const std::string& nombre) {
+    using Nodo = typename TipoArbol::Nodo;
+    constexpr int lmax = Nodo::lmax;
+    for (int cantidad : {0, 1, lmax, lmax + 1, 2 * lmax, 2 * lmax + 1, 4 * lmax + 1}) {
+        probar_caso_be<TipoArbol>(directorio / (nombre + "-" + std::to_string(cantidad) + ".bin"),
+                                 crear_datos(cantidad), cantidad > lmax ? 1 : 0);
+    }
+    probar_caso_be<TipoArbol>(directorio / (nombre + "-extremos.bin"),
+        {{std::numeric_limits<int>::max(), 1.0F}, {0, 2.0F},
+         {std::numeric_limits<int>::min(), 3.0F}}, 0);
+    probar_umbral_be<TipoArbol>(directorio / (nombre + "-bajo-umbral.bin"), true);
+    probar_umbral_be<TipoArbol>(directorio / (nombre + "-en-umbral.bin"), false);
+    auto datos = crear_datos(100000);
+    probar_caso_be<TipoArbol>(directorio / (nombre + "-ascendente.bin"), datos, 2);
+    std::reverse(datos.begin(), datos.end());
+    probar_caso_be<TipoArbol>(directorio / (nombre + "-descendente.bin"), datos, 2);
+    std::mt19937 generador(4102);
+    std::shuffle(datos.begin(), datos.end(), generador);
+    probar_caso_be<TipoArbol>(directorio / (nombre + "-desordenado.bin"), datos, 2);
+}
+
 }  // namespace
 
-/** Ejecuta pruebas deterministas del árbol B; devuelve 0 si pasan o 1 si fallan. */
+/** Ejecuta pruebas deterministas de los tres árboles; devuelve 0 si pasan o 1 si fallan. */
 int main() {
     try {
         DirectorioTemporal temporal;
@@ -214,6 +420,8 @@ int main() {
         std::mt19937 generador(4102);
         std::shuffle(datos.begin(), datos.end(), generador);
         probar_caso(temporal.ruta / "desordenado.bin", datos, 2);
+        probar_configuracion_be<ArbolBE025>(temporal.ruta, "be025");
+        probar_configuracion_be<ArbolBE075>(temporal.ruta, "be075");
     } catch (const std::exception& error) {
         std::cerr << "Error en pruebas de arboles: " << error.what() << '\n';
         return 1;

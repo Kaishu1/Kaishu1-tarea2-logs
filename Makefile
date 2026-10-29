@@ -3,7 +3,8 @@ CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Wpedantic
 
 PRUEBAS = build/pruebas_almacenamiento build/pruebas_arboles
 CABECERAS = src/registro.hpp src/nodo_b.hpp src/nodo_be.hpp src/metricas.hpp \
-            src/almacenamiento.hpp src/serializacion.hpp src/arbol.hpp src/arbol_b.hpp
+            src/almacenamiento.hpp src/serializacion.hpp src/arbol.hpp src/arbol_b.hpp \
+            src/arbol_be.hpp
 
 .PHONY: all test clean
 

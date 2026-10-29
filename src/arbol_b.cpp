@@ -4,7 +4,7 @@
 
 namespace {
 
-/** Dos mitades de un nodo lleno y el par que se promueve; no efectúa I/Os. */
+/** Resultado del split: izquierdo y derecho son las mitades; mediano sube al padre. */
 struct DivisionB {
     NodoB izquierdo;
     NodoB derecho;
@@ -36,7 +36,7 @@ DivisionB dividir(const NodoB& nodo) {
     return division;
 }
 
-/** Devuelve la primera posición con llave >= llave, o k; no modifica nodo. */
+/** Busca llave en nodo y devuelve el primer índice con llave mayor o igual, o k si no hay. */
 int posicion(const NodoB& nodo, int llave) {
     const auto inicio = nodo.llaves_valores.begin();
     return static_cast<int>(std::lower_bound(

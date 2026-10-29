@@ -6,7 +6,7 @@
 #include <string>
 
 namespace {
-/** Muestra las opciones existentes, sus valores por defecto y el alcance de ejecución. */
+/** Sin parámetros ni retorno: muestra en terminal las opciones y sus valores por defecto. */
 void ayuda() {
     std::cout << "Uso: ./build/tarea2 [opciones]\n"
               << "  --datos RUTA      Dataset binario (datos/datos.bin)\n"
@@ -18,7 +18,7 @@ void ayuda() {
               << "Prueba parcial: ./build/tarea2 --min-exp 15 --max-exp 16\n";
 }
 
-/** Convierte texto decimal no negativo a uint32; rechaza texto inválido y desbordes. */
+/** Recibe texto decimal y devuelve un entero uint32; lanza un error si no es válido. */
 std::uint32_t numero(const std::string& texto) {
     if (texto.empty() || texto.find_first_not_of("0123456789") != std::string::npos) {
         throw std::invalid_argument("Se esperaba un entero no negativo: " + texto);
@@ -31,7 +31,10 @@ std::uint32_t numero(const std::string& texto) {
 }
 }  // namespace
 
-/** Lee opciones, ejecuta construcción y consultas; devuelve 0 si termina o 1 ante error. */
+/**
+ * Recibe argc (cantidad de argumentos) y argv (argumentos de la terminal).
+ * Lee las opciones y ejecuta el experimento; devuelve 0 al terminar o 1 si falla.
+ */
 int main(int argc, char** argv) {
     try {
         ConfiguracionExperimento configuracion;

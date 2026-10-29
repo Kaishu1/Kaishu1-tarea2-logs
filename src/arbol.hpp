@@ -12,7 +12,7 @@ public:
     /** Destruye la implementación concreta y libera sus nodos. */
     virtual ~Arbol() = default;
 
-    /** Inserta un par tiempo-temperatura y acumula sus I/Os de construcción. */
+    /** Recibe par, lo inserta y acumula sus I/Os de construcción. No devuelve valor. */
     virtual void insertar(Registro par) = 0;
 
     /** Exporta a ruta; devuelve I/Os de exportación sin alterar las de construcción. */

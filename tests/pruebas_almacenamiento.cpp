@@ -52,7 +52,7 @@ void exigir(bool condicion, const std::string& mensaje) {
     }
 }
 
-/** Directorio exclusivo de estas pruebas; elimina únicamente sus archivos al terminar. */
+/** Guarda en ruta el directorio temporal de pruebas y elimina sus archivos al terminar. */
 struct DirectorioTemporal {
     std::filesystem::path ruta;
 
@@ -72,7 +72,7 @@ struct DirectorioTemporal {
 };
 
 /**
- * Devuelve un nodo con patrones distintos en todos sus campos a partir de base.
+ * Devuelve un Nodo con valores de prueba en sus campos, calculados a partir de base.
  * Los índices son datos de prueba: estos nodos no representan un árbol válido.
  * Permite detectar pérdida de campos o confusión entre bloques al serializar.
  */
@@ -217,7 +217,7 @@ void probar_errores_archivo(const std::filesystem::path& directorio) {
  * Ejecuta las comprobaciones de representación, métricas y almacenamiento.
  * No recibe parámetros ni requiere el dataset. Devuelve 0 si pasan
  * las comprobaciones y 1 si falla alguna; escribe el resultado en consola.
- * Usa archivos temporales propios. Todavía no prueba algoritmos de árboles.
+ * Usa archivos temporales propios; los algoritmos se prueban en pruebas_arboles.cpp.
  */
 int main() {
     const NodoB nodo_b;

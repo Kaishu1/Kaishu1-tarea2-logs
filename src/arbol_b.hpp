@@ -12,7 +12,7 @@ public:
     /** Crea una hoja raíz vacía en RAM; cuenta una escritura. */
     ArbolB() = default;
 
-    /** Inserta par, dividiendo antes de descender a un nodo lleno (sección 3.4.2). */
+    /** Inserta par y divide antes de bajar a un nodo lleno; modifica el árbol sin devolver valor. */
     void insertar(Registro par) override;
 
     /** Guarda bloques consecutivos en ruta; su carpeta debe existir. Devuelve I/Os propias. */
@@ -35,12 +35,15 @@ private:
     AlmacenamientoRAM<NodoB> almacenamiento_;
 
     /**
-     * Inserta par en el nodo no lleno ya leído en indice. Escribe las modificaciones
-     * y cuenta mediante el almacenamiento cada acceso a los descendientes.
+     * Recibe par y una copia del nodo no lleno ubicado en indice.
+     * Inserta el par y escribe los cambios, contando los accesos. No devuelve valor.
      */
     void insertar_no_lleno(int indice, NodoB nodo, Registro par);
 
-    /** Recorre desde indice los subárboles relevantes y agrega sus pares a resultado. */
+    /**
+     * Lee desde indice en archivo y busca en el rango inclusivo [l, u].
+     * Agrega los pares a resultado y acumula lecturas en archivo; no devuelve valor.
+     */
     static void buscar_en_nodo(ArchivoNodos<NodoB>& archivo, int indice,
                               int l, int u, std::vector<Registro>& resultado);
 };

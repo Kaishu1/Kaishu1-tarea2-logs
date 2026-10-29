@@ -18,23 +18,23 @@ namespace {
 namespace fs = std::filesystem;
 using Fila = std::vector<std::string>;
 
-/** Lanza un error descriptivo si condicion no se cumple; no modifica datos. */
+/** Comprueba condicion y lanza un error con mensaje si falla; no devuelve valor. */
 void exigir(bool condicion, const std::string& mensaje) {
     if (!condicion) throw std::runtime_error(mensaje);
 }
 
-/** Directorio de trabajo temporal; restaura el original y limpia solo sus archivos. */
+/** Guarda las rutas original y temporal para aislar las pruebas y limpiar sus archivos. */
 struct EntornoTemporal {
     fs::path original = fs::current_path();
     fs::path temporal;
-    /** Crea un directorio exclusivo y lo utiliza como directorio actual de las pruebas. */
+    /** Sin parámetros: crea temporal y lo usa como directorio de trabajo de las pruebas. */
     EntornoTemporal() {
         temporal = fs::temp_directory_path() / ("tarea2-experimentos-" + std::to_string(
             std::chrono::steady_clock::now().time_since_epoch().count()));
         exigir(fs::create_directory(temporal), "No se pudo crear el entorno temporal.");
         fs::current_path(temporal);
     }
-    /** Restaura el directorio original incluso si falla una prueba. */
+    /** Restaura original y elimina temporal al terminar, incluso si falla una prueba. */
     ~EntornoTemporal() {
         std::error_code error;
         fs::current_path(original, error);
@@ -42,14 +42,14 @@ struct EntornoTemporal {
     }
 };
 
-/** Lee un archivo completo para comprobar estado y conservación entre ejecuciones. */
+/** Recibe ruta y devuelve todo el texto del archivo; lanza un error si no puede abrirlo. */
 std::string leer_texto(const fs::path& ruta) {
     std::ifstream archivo(ruta);
     exigir(static_cast<bool>(archivo), "No se pudo abrir " + ruta.string());
     return {std::istreambuf_iterator<char>(archivo), std::istreambuf_iterator<char>()};
 }
 
-/** Lee los CSV numéricos de esta aplicación; exige columnas y omite la cabecera. */
+/** Lee el CSV de ruta y devuelve sus filas sin cabecera; exige columnas valores por fila. */
 std::vector<Fila> leer_csv(const fs::path& ruta, std::size_t columnas) {
     std::ifstream archivo(ruta);
     exigir(static_cast<bool>(archivo), "CSV ausente: " + ruta.string());
@@ -67,7 +67,7 @@ std::vector<Fila> leer_csv(const fs::path& ruta, std::size_t columnas) {
     return filas;
 }
 
-/** Devuelve pares ordenados mediante filtrado directo del prefijo de n registros. */
+/** Filtra los primeros n registros de datos por [l, u] y devuelve los pares ordenados por llave. */
 std::vector<Registro> filtrar(const std::vector<Registro>& datos, std::size_t n, int l, int u) {
     std::vector<Registro> esperado;
     for (std::size_t i = 0; i < n; ++i) {
@@ -78,8 +78,9 @@ std::vector<Registro> filtrar(const std::vector<Registro>& datos, std::size_t n,
 }
 
 /**
- * Verifica tamaños, rangos comunes, cantidades de consultas, promedios y muestras
- * contra el prefijo real de datos. Requiere una ejecución con N=2^15 y N=2^16.
+ * Revisa los CSV de carpeta usando datos como referencia para N = 2^15 y 2^16.
+ * Comprueba tamaños, rangos, cantidades, promedios y muestras.
+ * No devuelve valor; lanza un error si alguna comprobación falla.
  */
 void verificar_resultados(const fs::path& carpeta, const std::vector<Registro>& datos) {
     exigir(leer_texto(carpeta / "estado.txt") == "completa_para_el_intervalo_solicitado\n",
@@ -140,7 +141,10 @@ void verificar_resultados(const fs::path& carpeta, const std::vector<Registro>& 
 }
 }  // namespace
 
-/** Ejecuta una integración reproducible con datos sintéticos, sin tocar el dataset original. */
+/**
+ * Sin parámetros: ejecuta la prueba de experimentos con datos sintéticos.
+ * Devuelve 0 si pasa o 1 si falla.
+ */
 int main() {
     try {
         EntornoTemporal entorno;

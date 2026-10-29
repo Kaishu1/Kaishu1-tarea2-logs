@@ -30,7 +30,7 @@ constexpr int TIEMPO_MAXIMO = 1754006400;
 constexpr int SEMANA = 604800;
 constexpr std::size_t PARES_POR_LOTE = 65536;
 
-/** Límites inclusivos de una consulta, expresados en segundos Unix. */
+/** Rango de consulta: l es el límite inferior y u el superior, ambos inclusivos y en segundos Unix. */
 struct Rango { int l; int u; };
 
 /** Devuelve segundos transcurridos desde inicio con reloj monótono. */
@@ -38,7 +38,7 @@ double segundos(Reloj::time_point inicio) {
     return std::chrono::duration<double>(Reloj::now() - inicio).count();
 }
 
-/** Abre ruta para salida comprobada, con precisión suficiente para recuperar números. */
+/** Abre ruta y devuelve un flujo de escritura con precisión numérica; lanza un error si falla. */
 std::ofstream salida(const fs::path& ruta) {
     std::ofstream archivo;
     archivo.exceptions(std::ios::failbit | std::ios::badbit);
@@ -47,7 +47,10 @@ std::ofstream salida(const fs::path& ruta) {
     return archivo;
 }
 
-/** Lee cantidad registros nativos de 8 bytes; falla si el archivo termina antes. */
+/**
+ * Lee cantidad registros de archivo y los guarda en destino, que debe tener espacio.
+ * Avanza el archivo; no devuelve valor y lanza un error si faltan datos.
+ */
 void leer_registros(std::ifstream& archivo, Registro* destino, std::size_t cantidad) {
     archivo.read(reinterpret_cast<char*>(destino),
                  static_cast<std::streamsize>(cantidad * sizeof(Registro)));
@@ -56,6 +59,7 @@ void leer_registros(std::ifstream& archivo, Registro* destino, std::size_t canti
 
 /**
  * Valida configuración y tamaño del dataset antes de crear resultados.
+ * config contiene la ruta de entrada y los exponentes que se van a ejecutar.
  * El formato de entrada es little-endian, como el dataset comprobado de la tarea.
  * Si existe datos_sample.txt junto al binario, compara sus registros (texto redondeado).
  * Devuelve cuántos registros de muestra se verificaron; no mide ni modifica datos.
@@ -99,7 +103,7 @@ std::size_t validar_entrada(const ConfiguracionExperimento& config) {
     return comprobados;
 }
 
-/** Copia un archivo informativo del sistema; registra ausencia sin inventar valores. */
+/** Copia el archivo de ruta al flujo destino; si no existe, lo indica. No devuelve valor. */
 void informacion_sistema(std::ostream& destino, const fs::path& ruta) {
     destino << "\n[" << ruta.string() << "]\n";
     std::ifstream entrada(ruta);
@@ -107,7 +111,11 @@ void informacion_sistema(std::ostream& destino, const fs::path& ruta) {
     else destino << "No disponible\n";
 }
 
-/** Registra parámetros, compilador, SO, CPU, cachés y RAM visibles desde esta ejecución. */
+/**
+ * Escribe en ruta los parámetros de config y el entorno del equipo.
+ * muestra es la cantidad de registros verificados contra el archivo de texto.
+ * Guarda también compilador, SO, CPU, cachés y RAM; no devuelve valor.
+ */
 void guardar_entorno(const fs::path& ruta, const ConfiguracionExperimento& config,
                      std::size_t muestra) {
     auto archivo = salida(ruta);
@@ -158,7 +166,10 @@ void guardar_entorno(const fs::path& ruta, const ConfiguracionExperimento& confi
     archivo.close();
 }
 
-/** Exporta todos los pares de la consulta 0, fuera del intervalo medido. */
+/**
+ * Guarda pares y los límites de rango en el CSV indicado por ruta.
+ * Corresponde a la consulta 0 y se ejecuta fuera de la medición; no devuelve valor.
+ */
 void guardar_muestra(const fs::path& ruta, Rango rango, const std::vector<Registro>& pares) {
     auto archivo = salida(ruta);
     archivo << "consulta,l_unix_s,u_unix_s,tiempo_unix_s,temperatura_c\n";
@@ -169,9 +180,13 @@ void guardar_muestra(const fs::path& ruta, Rango rango, const std::vector<Regist
 }
 
 /**
- * Construye un árbol de n pares, lo serializa y libera su RAM antes de 50 consultas.
- * Imprime progreso y escribe CSV solo fuera de intervalos medidos. Usa rangos
- * comunes, config para entrada/semilla y carpetas exclusivas de esta ejecución.
+ * Construye TipoArbol con n pares y lo guarda usando bloques de tipo Nodo.
+ * config indica los datos y la semilla; nombre, epsilon y alfa identifican el árbol.
+ * capacidad y buffer indican sus máximos de llaves y pares en buffer.
+ * rangos contiene las 50 consultas; arboles y muestras son las carpetas de salida.
+ * Escribe las mediciones en resumen y consultas y muestra el avance en terminal.
+ * Libera el árbol en RAM antes de buscar; imprime y exporta fuera de los tiempos medidos.
+ * No devuelve valor.
  */
 template <typename TipoArbol, typename Nodo>
 void experimentar_arbol(const ConfiguracionExperimento& config, std::uint64_t n,

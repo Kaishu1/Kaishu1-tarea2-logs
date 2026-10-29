@@ -11,6 +11,7 @@
 
 /**
  * Árbol Bε parametrizado para las dos configuraciones de la tarea.
+ * C indica el máximo de separadores y LMax el máximo de pares por buffer.
  * Los pares residen en hojas o buffers internos; los separadores son solo llaves.
  * Las inserciones usan RAM; las consultas estáticas usan exclusivamente disco.
  */
@@ -23,7 +24,7 @@ public:
     /** Crea una raíz hoja vacía en 0 y cuenta una escritura. */
     ArbolBE() = default;
 
-    /** Inserta par por la raíz, efectuando divisiones y flush solo si es necesario. */
+    /** Inserta par por la raíz, con divisiones o vaciados si hacen falta; no devuelve valor. */
     void insertar(Registro par) override {
         Nodo raiz = almacenamiento_.leer(0);
         if (raiz.k_buffer == LMax) {
@@ -67,14 +68,14 @@ public:
 private:
     AlmacenamientoRAM<Nodo> almacenamiento_;
 
-    /** Mitades y llave promovida de un split; los pares de datos se conservan una vez. */
+    /** Resultado del split: izquierdo y derecho son las mitades; separador es la llave que sube. */
     struct Division {
         Nodo izquierdo;
         Nodo derecho;
         int separador = 0;
     };
 
-    /** Devuelve el hijo de llave: primer separador >= llave, o k_llaves. */
+    /** Busca llave en nodo; devuelve el índice del primer separador >= llave, o k_llaves. */
     static int posicion_hijo(const Nodo& nodo, int llave) {
         return static_cast<int>(std::lower_bound(nodo.llaves.begin(),
             nodo.llaves.begin() + nodo.k_llaves, llave) - nodo.llaves.begin());
@@ -83,6 +84,7 @@ private:
     /**
      * Mezcla cantidad pares ordenados de lote en el buffer de nodo, sin I/Os.
      * Requiere espacio suficiente y un lote que no sea parte del buffer destino.
+     * Actualiza nodo y su k_buffer; no devuelve valor.
      */
     static void mezclar(Nodo& nodo, const Registro* lote, int cantidad) {
         int i = nodo.k_buffer - 1;
@@ -98,7 +100,7 @@ private:
         nodo.k_buffer += cantidad;
     }
 
-    /** Retira cantidad pares desde inicio del buffer local, tras transferirlos a un hijo. */
+    /** Quita cantidad pares desde inicio en nodo.buffer y actualiza k_buffer; no devuelve valor. */
     static void retirar(Nodo& nodo, int inicio, int cantidad) {
         for (int i = inicio + cantidad; i < nodo.k_buffer; ++i) {
             nodo.buffer[i - cantidad] = nodo.buffer[i];
@@ -109,7 +111,8 @@ private:
     /**
      * Divide una hoja con LMax pares o un interno con C separadores (sección 3.4.3).
      * En hojas, conserva el mediano en la izquierda; en internos, promueve solo su
-     * llave y distribuye el buffer por <= separador y > separador. No efectúa I/Os.
+     * llave y distribuye el buffer por <= separador y > separador.
+     * Devuelve las dos mitades y el separador, sin modificar nodo ni efectuar I/Os.
      */
     static Division dividir(const Nodo& nodo) {
         Division division;
@@ -141,7 +144,7 @@ private:
     }
 
     /**
-     * Agrega ambas mitades de raiz al vector y devuelve la nueva raíz interna vacía.
+     * Agrega ambas mitades de raiz al vector y devuelve una raíz interna con buffer vacío.
      * El llamador inserta el nuevo par y escribe la raíz en 0; cuenta cada agregado.
      */
     Nodo dividir_raiz(const Nodo& raiz) {
@@ -156,9 +159,9 @@ private:
     }
 
     /**
-     * Divide hijo ya leído, reemplaza su posición por la izquierda y agrega derecha.
-     * Inserta separador en padre local, que debe tener menos de C llaves; el llamador
-     * escribe padre o propaga su división si alcanza C. Cuenta escrituras de hijos.
+     * Divide hijo, ubicado en padre.hijos[posicion], y guarda las dos mitades.
+     * Actualiza padre con el separador y el nuevo hijo; requiere menos de C llaves.
+     * El llamador guarda padre o propaga su división. Cuenta escrituras y no devuelve valor.
      */
     void dividir_hijo(Nodo& padre, int posicion, const Nodo& hijo) {
         const Division division = dividir(hijo);
@@ -179,6 +182,7 @@ private:
      * a ubicar los pares restantes por sus llaves. Se detiene si padre alcanza C:
      * los pares aún no transferidos permanecen en su buffer para la continuación.
      * Modifica padre local y escribe cada hijo actualizado mediante almacenamiento.
+     * No devuelve valor.
      */
     void transferir_grupo(Nodo& padre, int inicio, int cantidad) {
         while (cantidad > 0 && padre.k_llaves < C) {
@@ -217,12 +221,10 @@ private:
     }
 
     /**
-     * Flush de un interno no vacío con menos de C separadores (sección 3.4.3).
-     * Selecciona grupos >= ceil(ceil(k_buffer/(k_llaves+1))*alfa) y los procesa
-     * de derecha a izquierda. Al alcanzar C, retorna para que el padre o la raíz
-     * dividan el nodo antes de continuar: nunca escribe un separador C+1.
-     * Los grupos pendientes quedan en el buffer y se reagrupan cuando se requiere
-     * espacio en las mitades resultantes. No fuerza el vaciado completo del árbol.
+     * Vacía grupos del buffer de nodo, un interno no vacío con menos de C separadores.
+     * Procesa de derecha a izquierda los grupos >= ceil(ceil(k_buffer/(k_llaves+1))*alfa).
+     * Si alcanza C separadores, se detiene para dividir; deja los pares pendientes en el buffer.
+     * Modifica nodo y escribe sus hijos; el llamador guarda nodo. No devuelve valor.
      */
     void vaciar(Nodo& nodo) {
         const int hijos = nodo.k_llaves + 1;
@@ -248,7 +250,10 @@ private:
         }
     }
 
-    /** Agrega a resultado los pares de [l,u] del buffer y de los hijos relevantes. */
+    /**
+     * Lee desde indice en archivo y busca en el rango inclusivo [l, u].
+     * Agrega a resultado los pares de buffers y hojas; cuenta lecturas y no devuelve valor.
+     */
     static void buscar_en_nodo(ArchivoNodos<Nodo>& archivo, int indice,
                               int l, int u, std::vector<Registro>& resultado) {
         const Nodo nodo = archivo.leer(indice);

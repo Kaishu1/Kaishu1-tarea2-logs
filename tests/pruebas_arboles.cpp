@@ -14,14 +14,14 @@
 
 namespace {
 
-/** Lanza runtime_error con mensaje cuando condicion es falsa; no modifica datos. */
+/** Comprueba condicion y lanza runtime_error con mensaje si falla; no devuelve valor. */
 void exigir(bool condicion, const std::string& mensaje) {
     if (!condicion) {
         throw std::runtime_error(mensaje);
     }
 }
 
-/** Directorio temporal exclusivo; evita modificar datos o árboles de la usuaria. */
+/** Guarda en ruta el directorio temporal de pruebas, separado de los datos originales. */
 struct DirectorioTemporal {
     std::filesystem::path ruta;
 
@@ -40,7 +40,10 @@ struct DirectorioTemporal {
     }
 };
 
-/** Comprueba igualdad de llaves, valores, orden y cantidad, sin modificar los vectores. */
+/**
+ * Compara obtenido con esperado, incluidos valores y orden.
+ * No devuelve valor; lanza un error si encuentra diferencias.
+ */
 void comparar(const std::vector<Registro>& obtenido, const std::vector<Registro>& esperado) {
     exigir(obtenido.size() == esperado.size(), "Cantidad incorrecta de pares en consulta.");
     for (std::size_t i = 0; i < esperado.size(); ++i) {
@@ -50,9 +53,11 @@ void comparar(const std::vector<Registro>& obtenido, const std::vector<Registro>
 }
 
 /**
- * Verifica recursivamente ocupación, orden, rangos (inferior, superior], enlaces
- * únicos y profundidad uniforme de hojas. Marca visitados, actualiza profundidad_hoja
- * (inicialmente -1) y devuelve el total de pares del subárbol desde indice.
+ * Revisa el subárbol de archivo desde indice, a la profundidad indicada.
+ * inferior y superior delimitan su rango (inferior, superior].
+ * Marca visitados y actualiza profundidad_hoja (inicialmente -1).
+ * Devuelve el total de pares; lanza un error si fallan ocupación, orden, rangos o enlaces.
+ * También comprueba que todas las hojas tengan la misma profundidad.
  */
 std::size_t verificar_nodo(ArchivoNodos<NodoB>& archivo, int indice,
                            std::int64_t inferior, std::int64_t superior,
@@ -90,7 +95,10 @@ std::size_t verificar_nodo(ArchivoNodos<NodoB>& archivo, int indice,
     return pares;
 }
 
-/** Compara [l,u] con filtrado directo de entrada; comprueba I/Os de solo lectura. */
+/**
+ * Busca [l,u] en archivo y compara con el filtrado de entrada; comprueba las lecturas.
+ * No devuelve valor; lanza un error si falla una comprobación.
+ */
 void verificar_consulta(ArchivoNodos<NodoB>& archivo, const std::vector<Registro>& entrada,
                         int l, int u) {
     std::vector<Registro> esperado;
@@ -112,6 +120,7 @@ void verificar_consulta(ArchivoNodos<NodoB>& archivo, const std::vector<Registro
  * Construye entrada, guarda en ruta y destruye el árbol RAM. Verifica después
  * estructura y consultas solo desde disco. profundidad_minima exige que el caso
  * alcance las divisiones previstas (0 hoja, 1 raíz interna, 2 internos divididos).
+ * No devuelve valor; muestra el resultado y lanza un error si falla una comprobación.
  */
 void probar_caso(const std::filesystem::path& ruta, const std::vector<Registro>& entrada,
                  int profundidad_minima) {
@@ -196,9 +205,11 @@ std::vector<Registro> crear_datos(int cantidad) {
 }
 
 /**
- * Verifica estructura Bε desde disco: buffers ordenados en su rango, capacidades,
- * enlaces únicos y hojas a igual profundidad. Devuelve cantidad de datos reales;
- * agrega a muestras una llave por buffer interno no vacío para consultas puntuales.
+ * Revisa el subárbol Bε de archivo desde indice, a la profundidad indicada.
+ * inferior y superior delimitan su rango (inferior, superior]; Nodo indica el formato.
+ * Marca visitados, actualiza profundidad_hoja (inicialmente -1) y agrega a muestras
+ * una llave por buffer interno no vacío. Devuelve la cantidad de pares de datos.
+ * Lanza un error si fallan capacidades, orden, rangos, enlaces o profundidad de hojas.
  */
 template <typename Nodo>
 std::size_t verificar_nodo_be(ArchivoNodos<Nodo>& archivo, int indice,
@@ -250,7 +261,10 @@ std::size_t verificar_nodo_be(ArchivoNodos<Nodo>& archivo, int indice,
     return pares;
 }
 
-/** Compara consulta BE [l,u] con filtrado directo; verifica solo lecturas de bloques. */
+/**
+ * Consulta TipoArbol desde archivo en [l,u] y compara con el filtrado de entrada.
+ * Comprueba que solo haya lecturas; no devuelve valor y lanza un error si falla.
+ */
 template <typename TipoArbol>
 void verificar_consulta_be(ArchivoNodos<typename TipoArbol::Nodo>& archivo,
                            const std::vector<Registro>& entrada, int l, int u) {
@@ -268,7 +282,11 @@ void verificar_consulta_be(ArchivoNodos<typename TipoArbol::Nodo>& archivo,
            && archivo.metricas().escrituras == 0, "Conteo incorrecto en consulta BE.");
 }
 
-/** Construye entrada, destruye RAM y comprueba estructura y consultas BE desde ruta. */
+/**
+ * Inserta entrada en TipoArbol, lo guarda en ruta y lo comprueba después desde disco.
+ * profundidad_minima es la profundidad que debe alcanzar (0 corresponde a la raíz).
+ * No devuelve valor; muestra el resultado y lanza un error si falla una comprobación.
+ */
 template <typename TipoArbol>
 void probar_caso_be(const std::filesystem::path& ruta, const std::vector<Registro>& entrada,
                     int profundidad_minima) {
@@ -339,9 +357,10 @@ void probar_caso_be(const std::filesystem::path& ruta, const std::vector<Registr
 }
 
 /**
- * Genera grupos a ambos lados del primer separador: uno justo bajo el umbral
- * (o exactamente igual) y otro mayor. Comprueba selección de TODOS los grupos
- * elegibles, conservación del resto y split de una hoja antes parcialmente llena.
+ * Crea un TipoArbol en ruta con grupos a ambos lados del primer separador.
+ * bajo_umbral elige si el grupo menor queda justo bajo el umbral o igual a él.
+ * Comprueba qué grupos se transfieren, el split y la conservación de los pares.
+ * No devuelve valor; lanza un error si falla y muestra el resultado si pasa.
  */
 template <typename TipoArbol>
 void probar_umbral_be(const std::filesystem::path& ruta, bool bajo_umbral) {
@@ -377,7 +396,10 @@ void probar_umbral_be(const std::filesystem::path& ruta, bool bajo_umbral) {
     std::cout << ruta.filename().string() << ": OK (seleccion de grupos con alpha=0.5)\n";
 }
 
-/** Ejecuta los mismos casos y semillas para una configuración BE en directorio. */
+/**
+ * Prueba la configuración TipoArbol; guarda archivos en directorio con el prefijo nombre.
+ * Ejecuta los mismos casos y semillas para ambas variantes; no devuelve valor.
+ */
 template <typename TipoArbol>
 void probar_configuracion_be(const std::filesystem::path& directorio, const std::string& nombre) {
     using Nodo = typename TipoArbol::Nodo;
@@ -402,7 +424,7 @@ void probar_configuracion_be(const std::filesystem::path& directorio, const std:
 
 }  // namespace
 
-/** Ejecuta pruebas deterministas de los tres árboles; devuelve 0 si pasan o 1 si fallan. */
+/** Sin parámetros: ejecuta las pruebas de los tres árboles; devuelve 0 si pasan o 1 si fallan. */
 int main() {
     try {
         DirectorioTemporal temporal;
